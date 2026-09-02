@@ -1,20 +1,29 @@
 """
 Hourly stock check script.
-Runs once per invocation — Render's Cron Job scheduler calls this every hour;
+Runs once per invocation — a GitHub Actions schedule calls this every hour;
 this script checks whether NYSE is currently open before doing any real work,
 so it's a no-op (and doesn't burn API calls) outside trading hours.
+
+Each run appends a snapshot to docs/data.json, which the dashboard at
+stocks.carstoiuc.org (served via GitHub Pages from the docs/ folder) reads
+directly — no separate backend or database needed.
 """
 
+import json
 import os
 import smtplib
 import sys
 from datetime import datetime
 from email.mime.text import MIMEText
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 
-# ---- Config (all pulled from environment variables set in Render) ----
+DATA_FILE = Path(__file__).parent / "docs" / "data.json"
+MAX_HISTORY = 500  # keep the file small; oldest snapshots roll off
+
+# ---- Config (all pulled from environment variables / GitHub Actions secrets) ----
 TICKERS = os.environ.get("TICKERS", "AAPL,MSFT,NVDA").split(",")
 FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY")
 
@@ -28,7 +37,6 @@ ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO")
 MOVE_THRESHOLD_PCT = float(os.environ.get("MOVE_THRESHOLD_PCT", "2.0"))
 
 NY_TZ = ZoneInfo("America/New_York")
-
 
 def is_nyse_open(now_ny: datetime) -> bool:
     """Basic regular-hours check: Mon-Fri, 9:30am-4:00pm ET.
@@ -60,6 +68,22 @@ def analyze(ticker: str, quote: dict) -> str | None:
         return f"{ticker}: {direction} {abs(pct_change):.2f}% (${prev_close:.2f} -> ${current:.2f})"
     return None
 
+def load_history() -> list[dict]:
+    if not DATA_FILE.exists():
+        return []
+    try:
+        return json.loads(DATA_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_snapshot(snapshot: dict) -> None:
+    history = load_history()
+    history.append(snapshot)
+    history = history[-MAX_HISTORY:]
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DATA_FILE.write_text(json.dumps(history, indent=2))
+
 
 def send_email(subject: str, body: str) -> None:
     if not (SMTP_USER and SMTP_PASSWORD and ALERT_EMAIL_TO):
@@ -78,7 +102,6 @@ def send_email(subject: str, body: str) -> None:
         server.login(SMTP_USER, SMTP_PASSWORD)
         server.sendmail(SMTP_USER, [ALERT_EMAIL_TO], msg.as_string())
 
-
 def main() -> None:
     now_ny = datetime.now(NY_TZ)
 
@@ -91,6 +114,7 @@ def main() -> None:
         sys.exit(1)
 
     alerts = []
+    ticker_snapshots = []
     for ticker in TICKERS:
         ticker = ticker.strip()
         try:
@@ -98,9 +122,25 @@ def main() -> None:
         except requests.RequestException as e:
             print(f"Failed to fetch {ticker}: {e}", file=sys.stderr)
             continue
+
+        current, prev_close = quote.get("c"), quote.get("pc")
+        pct_change = ((current - prev_close) / prev_close * 100) if current and prev_close else None
         message = analyze(ticker, quote)
         if message:
             alerts.append(message)
+
+        ticker_snapshots.append({
+            "ticker": ticker,
+            "price": current,
+            "prev_close": prev_close,
+            "pct_change": round(pct_change, 2) if pct_change is not None else None,
+            "alert": message is not None,
+        })
+
+    save_snapshot({
+        "timestamp": now_ny.isoformat(),
+        "tickers": ticker_snapshots,
+    })
 
     if alerts:
         body = "\n".join(alerts)

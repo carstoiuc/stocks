@@ -10,6 +10,9 @@ on:
     - cron: '0 13-21 * * 1-5'
   workflow_dispatch: {}  # lets you manually trigger a run from the Actions tab, for testing
 
+permissions:
+  contents: write  # needed so the workflow can commit docs/data.json back to the repo
+
 jobs:
   check-stocks:
     runs-on: ubuntu-latest
@@ -36,3 +39,11 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
         run: python main.py
+
+      - name: Commit updated data.json (if changed)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data.json
+          git diff --staged --quiet || git commit -m "Update stock check data [skip ci]"
+          git push
