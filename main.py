@@ -13,7 +13,7 @@ import json
 import os
 import smtplib
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -23,18 +23,38 @@ import requests
 DATA_FILE = Path(__file__).parent / "docs" / "data.json"
 MAX_HISTORY = 500  # keep the file small; oldest snapshots roll off
 
+
+def _int_env(name: str, default: int) -> int:
+    """Like os.environ.get with a default, but also falls back on an empty
+    string — which is what an unset GitHub Actions secret resolves to
+    (the env var still gets *set*, just to ""), not a missing key."""
+    val = os.environ.get(name, "")
+    return int(val) if val.strip() else default
+
+
+def _float_env(name: str, default: float) -> float:
+    val = os.environ.get(name, "")
+    return float(val) if val.strip() else default
+
+
 # ---- Config (all pulled from environment variables / GitHub Actions secrets) ----
 TICKERS = os.environ.get("TICKERS", "AAPL,MSFT,NVDA").split(",")
 FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY")
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_PORT = _int_env("SMTP_PORT", 587)
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO")
 
 # Simple example threshold: alert if a stock moves more than this % from previous close
-MOVE_THRESHOLD_PCT = float(os.environ.get("MOVE_THRESHOLD_PCT", "2.0"))
+MOVE_THRESHOLD_PCT = _float_env("MOVE_THRESHOLD_PCT", 2.0)
+
+# "Smarter" trend trigger: alert if a stock has moved this much over N days,
+# using our own stored hourly history rather than just the prior close.
+# Catches slower-building trends the single-day check would miss.
+MULTI_DAY_LOOKBACK_DAYS = _int_env("MULTI_DAY_LOOKBACK_DAYS", 3)
+MULTI_DAY_THRESHOLD_PCT = _float_env("MULTI_DAY_THRESHOLD_PCT", 5.0)
 
 NY_TZ = ZoneInfo("America/New_York")
 
@@ -66,6 +86,40 @@ def analyze(ticker: str, quote: dict) -> str | None:
     if abs(pct_change) >= MOVE_THRESHOLD_PCT:
         direction = "up" if pct_change > 0 else "down"
         return f"{ticker}: {direction} {abs(pct_change):.2f}% (${prev_close:.2f} -> ${current:.2f})"
+    return None
+
+
+def find_price_days_ago(history: list[dict], ticker: str, days_ago: int, now_ny: datetime) -> float | None:
+    """Find the closest stored price for `ticker` at or before `days_ago` days back.
+    Returns None if history doesn't go back far enough yet (e.g. still early days)."""
+    target = now_ny - timedelta(days=days_ago)
+    best_price, best_diff = None, None
+    for entry in history:
+        try:
+            ts = datetime.fromisoformat(entry["timestamp"])
+        except (KeyError, ValueError):
+            continue
+        if ts > target:
+            continue
+        diff = (target - ts).total_seconds()
+        for t in entry.get("tickers", []):
+            if t.get("ticker") == ticker and t.get("price") is not None:
+                if best_diff is None or diff < best_diff:
+                    best_price, best_diff = t["price"], diff
+    return best_price
+
+
+def analyze_multi_day(ticker: str, current_price: float | None, past_price: float | None) -> str | None:
+    """Return an alert message if the multi-day trend exceeds the threshold, else None."""
+    if not current_price or not past_price:
+        return None
+    pct_change = (current_price - past_price) / past_price * 100
+    if abs(pct_change) >= MULTI_DAY_THRESHOLD_PCT:
+        direction = "up" if pct_change > 0 else "down"
+        return (
+            f"{ticker}: {direction} {abs(pct_change):.2f}% over {MULTI_DAY_LOOKBACK_DAYS}d "
+            f"(${past_price:.2f} -> ${current_price:.2f})"
+        )
     return None
 
 def load_history() -> list[dict]:
@@ -115,6 +169,8 @@ def main() -> None:
 
     alerts = []
     ticker_snapshots = []
+    history = load_history()  # used for the multi-day trend check below
+
     for ticker in TICKERS:
         ticker = ticker.strip()
         try:
@@ -125,16 +181,22 @@ def main() -> None:
 
         current, prev_close = quote.get("c"), quote.get("pc")
         pct_change = ((current - prev_close) / prev_close * 100) if current and prev_close else None
+
         message = analyze(ticker, quote)
+        past_price = find_price_days_ago(history, ticker, MULTI_DAY_LOOKBACK_DAYS, now_ny)
+        trend_message = analyze_multi_day(ticker, current, past_price)
+
         if message:
             alerts.append(message)
+        if trend_message:
+            alerts.append(trend_message)
 
         ticker_snapshots.append({
             "ticker": ticker,
             "price": current,
             "prev_close": prev_close,
             "pct_change": round(pct_change, 2) if pct_change is not None else None,
-            "alert": message is not None,
+            "alert": message is not None or trend_message is not None,
         })
 
     save_snapshot({

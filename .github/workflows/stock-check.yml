@@ -33,6 +33,8 @@ jobs:
           TICKERS: ${{ secrets.TICKERS }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           MOVE_THRESHOLD_PCT: ${{ secrets.MOVE_THRESHOLD_PCT }}
+          MULTI_DAY_LOOKBACK_DAYS: ${{ secrets.MULTI_DAY_LOOKBACK_DAYS }}
+          MULTI_DAY_THRESHOLD_PCT: ${{ secrets.MULTI_DAY_THRESHOLD_PCT }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
