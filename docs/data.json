@@ -2312,5 +2312,94 @@
         "alert": true
       }
     ]
+  },
+  {
+    "timestamp": "2026-09-09T12:02:29.277888-04:00",
+    "tickers": [
+      {
+        "ticker": "AMAT",
+        "price": 468.2,
+        "prev_close": 472.79,
+        "pct_change": -0.97,
+        "alert": false
+      },
+      {
+        "ticker": "NBIS",
+        "price": 246.03,
+        "prev_close": 243.88,
+        "pct_change": 0.88,
+        "alert": true
+      },
+      {
+        "ticker": "UBER",
+        "price": 71.38,
+        "prev_close": 73.13,
+        "pct_change": -2.39,
+        "alert": true
+      },
+      {
+        "ticker": "DASH",
+        "price": 196.53,
+        "prev_close": 200.44,
+        "pct_change": -1.95,
+        "alert": true
+      },
+      {
+        "ticker": "PLD",
+        "price": 135.4,
+        "prev_close": 138.48,
+        "pct_change": -2.22,
+        "alert": true
+      },
+      {
+        "ticker": "QQQ",
+        "price": 716.3,
+        "prev_close": 718.36,
+        "pct_change": -0.29,
+        "alert": false
+      },
+      {
+        "ticker": "COST",
+        "price": 900.86,
+        "prev_close": 910.18,
+        "pct_change": -1.02,
+        "alert": false
+      },
+      {
+        "ticker": "IBM",
+        "price": 231.86,
+        "prev_close": 232.09,
+        "pct_change": -0.1,
+        "alert": false
+      },
+      {
+        "ticker": "C",
+        "price": 138.18,
+        "prev_close": 136.74,
+        "pct_change": 1.05,
+        "alert": false
+      },
+      {
+        "ticker": "BLK",
+        "price": 1079.93,
+        "prev_close": 1095.37,
+        "pct_change": -1.41,
+        "alert": false
+      },
+      {
+        "ticker": "RACE",
+        "price": 402.87,
+        "prev_close": 405.94,
+        "pct_change": -0.76,
+        "alert": false
+      },
+      {
+        "ticker": "WLDN",
+        "price": 83.29,
+        "prev_close": 87.25,
+        "pct_change": -4.54,
+        "alert": true
+      }
+    ]
   }
 ]
